@@ -6,7 +6,7 @@ from transformers import BertTokenizerFast, TrainingArguments, Trainer, BertConf
 if __name__ == "__main__":
     
     print('Loading dataset...')
-    dataset = COCATokenizedDataset(root_path='./coca_tokenized')
+    dataset = COCATokenizedDataset(root_path='./coca_tokenized', debug=True)
 
     print('Loading tokenizer...')
     tokenizer = BertTokenizerFast.from_pretrained('./coca_tokenized/tokenizer')
@@ -15,12 +15,15 @@ if __name__ == "__main__":
     training_args = TrainingArguments(
         output_dir='./results',
         num_train_epochs=1,
-        per_device_train_batch_size=64,
+        per_device_train_batch_size=32,
         warmup_steps=1000,
         weight_decay=0.01,
         logging_dir='./logs',
+        logging_steps=10,
     )
 
+    #100M
+    '''
     config = BertConfig(
         vocab_size=len(tokenizer),
         hidden_size=768,
@@ -29,9 +32,33 @@ if __name__ == "__main__":
         intermediate_size=3072,
         max_position_embeddings=512,
     )
+    '''
+
+    #300M
+    config = BertConfig(
+        vocab_size=len(tokenizer),
+        hidden_size=1024,
+        num_hidden_layers=24,
+        num_attention_heads=16,
+        intermediate_size=4096,
+        max_position_embeddings=512,
+    )
+
+    '''
+    #1B
+    config = BertConfig(
+        vocab_size=len(tokenizer),
+        hidden_size=1280,
+        num_hidden_layers=36,
+        num_attention_heads=20,
+        intermediate_size=5120,
+        max_position_embeddings=512,
+    )
+    '''
 
     print('Loading model...')
     model = BertForMaskedLM(config)
+
 
     print('Loading trainer...')
     trainer = Trainer(

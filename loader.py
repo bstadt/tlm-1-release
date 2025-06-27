@@ -9,9 +9,12 @@ import json
 from typing import Any, Dict, List
 
 class COCATokenizedDataset(Dataset):
-    def __init__(self, root_path):
+    def __init__(self, root_path, debug=False):
         self.root_path = root_path
-        self.source_files = glob.glob(os.path.join(root_path, '*.jsonl'))
+        if debug:
+            self.source_files = glob.glob(os.path.join(root_path, '*acad*.jsonl'))
+        else:
+            self.source_files = glob.glob(os.path.join(root_path, '*.jsonl'))
         
         # Compute total length and file lengths
         self.file_lengths = []
@@ -43,9 +46,10 @@ class COCATokenizedDataset(Dataset):
         return {'input_ids': torch.tensor(data)}
 
 class DataCollatorForSpanMasking:
-    def __init__(self, tokenizer, max_mask_ratio=0.15):
+    def __init__(self, tokenizer, max_mask_ratio=0.15, num_spans=5):
         self.tokenizer = tokenizer
         self.max_mask_ratio = max_mask_ratio
+        self.num_spans = num_spans
         self.geom_p = 0.2
         self.lower = 1
         self.upper = 4
@@ -71,10 +75,8 @@ class DataCollatorForSpanMasking:
             input_ids = example['input_ids']
             cur_labels = input_ids.clone()
 
-            #TODO debug TODO
             #num_spans = int(np.round((input_ids.shape[0] * self.max_mask_ratio)/self.expected_masks_per_span))
-            num_spans = 1
-            #TODO debug TODO
+            num_spans = self.num_spans
 
             span_lens = np.random.choice(self.lens, num_spans, p=self.len_distrib)
             for span_len in span_lens:

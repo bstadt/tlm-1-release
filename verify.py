@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 model = BertForMaskedLM.from_pretrained('./model')
 tokenizer = BertTokenizerFast.from_pretrained('./model')
 
-dataset = COCATokenizedDataset(root_path='./coca_tokenized')
+dataset = COCATokenizedDataset(root_path='./coca_tokenized', debug=True)
 
 # Create dataloader with custom collator
 dataloader = DataLoader(
