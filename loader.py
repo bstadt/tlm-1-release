@@ -11,10 +11,7 @@ from typing import Any, Dict, List
 class COCATokenizedDataset(Dataset):
     def __init__(self, root_path):
         self.root_path = root_path
-
-        #TODO debug TODO
-        self.source_files = glob.glob(os.path.join(root_path, '*acad*.jsonl'))
-        #TODO debug TODO
+        self.source_files = glob.glob(os.path.join(root_path, '*.jsonl'))
         
         # Compute total length and file lengths
         self.file_lengths = []
@@ -51,7 +48,7 @@ class DataCollatorForSpanMasking:
         self.max_mask_ratio = max_mask_ratio
         self.geom_p = 0.2
         self.lower = 1
-        self.upper = 10
+        self.upper = 4
         self.lens = list(range(self.lower, self.upper + 1))
         self.len_distrib = [self.geom_p * (1-self.geom_p)**(i - self.lower) for i in self.lens] if self.geom_p >= 0 else None
         self.len_distrib = [x / (sum(self.len_distrib)) for x in self.len_distrib]
@@ -73,7 +70,12 @@ class DataCollatorForSpanMasking:
 
             input_ids = example['input_ids']
             cur_labels = input_ids.clone()
-            num_spans = int(np.round((input_ids.shape[0] * self.max_mask_ratio)/self.expected_masks_per_span))
+
+            #TODO debug TODO
+            #num_spans = int(np.round((input_ids.shape[0] * self.max_mask_ratio)/self.expected_masks_per_span))
+            num_spans = 1
+            #TODO debug TODO
+
             span_lens = np.random.choice(self.lens, num_spans, p=self.len_distrib)
             for span_len in span_lens:
                 start_idx = np.random.randint(0, input_ids.shape[0] - span_len)
