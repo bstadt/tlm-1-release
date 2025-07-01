@@ -12,7 +12,7 @@ class COCATokenizedDataset(Dataset):
     def __init__(self, root_path, debug=False):
         self.root_path = root_path
         if debug:
-            self.source_files = glob.glob(os.path.join(root_path, '*acad*1990.jsonl'))
+            self.source_files = glob.glob(os.path.join(root_path, '*acad*.jsonl'))
         else:
             self.source_files = glob.glob(os.path.join(root_path, '*.jsonl'))
         
@@ -31,6 +31,7 @@ class COCATokenizedDataset(Dataset):
         return self.total_length
 
     def __getitem__(self, idx):
+
         linenum = idx + 1 #since linecache is 1-indexed for some reason
         file_idx = np.searchsorted(self.cumulative_lengths, linenum)
         if file_idx == 0:

@@ -64,7 +64,7 @@ def preproc_blog_web(fpath):
                     texts.append(content)
                 else:
                     print(f"docid {docid} not found in filenum_to_year when processing file {fpath}")
-    print(f"Extracted{len(texts)} texts from {fpath}")
+    print(f"Extracted {len(texts)} texts from {fpath}")
     return texts
 
 # preproc orchestration
