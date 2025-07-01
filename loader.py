@@ -12,7 +12,7 @@ class COCATokenizedDataset(Dataset):
     def __init__(self, root_path, debug=False):
         self.root_path = root_path
         if debug:
-            self.source_files = glob.glob(os.path.join(root_path, '*acad*.jsonl'))
+            self.source_files = glob.glob(os.path.join(root_path, '*acad*1990.jsonl'))
         else:
             self.source_files = glob.glob(os.path.join(root_path, '*.jsonl'))
         
@@ -46,9 +46,8 @@ class COCATokenizedDataset(Dataset):
         return {'input_ids': torch.tensor(data)}
 
 class DataCollatorForSpanMasking:
-    def __init__(self, tokenizer, max_mask_ratio=0.15, num_spans=5):
+    def __init__(self, tokenizer, num_spans=30):
         self.tokenizer = tokenizer
-        self.max_mask_ratio = max_mask_ratio
         self.num_spans = num_spans
         self.geom_p = 0.2
         self.lower = 1
@@ -56,7 +55,7 @@ class DataCollatorForSpanMasking:
         self.lens = list(range(self.lower, self.upper + 1))
         self.len_distrib = [self.geom_p * (1-self.geom_p)**(i - self.lower) for i in self.lens] if self.geom_p >= 0 else None
         self.len_distrib = [x / (sum(self.len_distrib)) for x in self.len_distrib]
-        self.expected_masks_per_span = np.sum([p * self.lens[i]+1 for i, p in enumerate(self.len_distrib)])
+        self.num_spans = num_spans
 
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
 
@@ -75,7 +74,6 @@ class DataCollatorForSpanMasking:
             input_ids = example['input_ids']
             cur_labels = input_ids.clone()
 
-            #num_spans = int(np.round((input_ids.shape[0] * self.max_mask_ratio)/self.expected_masks_per_span))
             num_spans = self.num_spans
 
             span_lens = np.random.choice(self.lens, num_spans, p=self.len_distrib)
@@ -89,7 +87,7 @@ class DataCollatorForSpanMasking:
         labels = torch.stack(labels)
 
         # Set non mask tokens to -100 so they are ignored by the loss function
-        labels[labels == self.tokenizer.mask_token_id] = -100
+        labels[input_ids != self.tokenizer.mask_token_id] = -100
 
         return {
             "input_ids": input_ids,
