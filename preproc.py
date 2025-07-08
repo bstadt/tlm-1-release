@@ -11,7 +11,7 @@ def preproc_general(fpath):
     with open(fpath, 'r', encoding='utf-8') as file:
         text = file.read()
 
-    texts = []
+    num_texts = 0
     year = fpath.split('/')[-1].split('_')[-1].split('.')[0]
     text = text.replace('<p>', ' ')
     text = text.replace('<h>', ' ')
@@ -24,10 +24,9 @@ def preproc_general(fpath):
             first_space_index = e.find(' ')
             if first_space_index != -1:
                 docid = e[:first_space_index]
-                content = '[YEAR:{year}] '.format(year=year) + e[first_space_index + 1:]
-                texts.append(content)
-    return texts
-
+                text = e[first_space_index + 1:]
+                yield text, year
+    print(f"Extracted {num_texts} texts from {fpath}")
 
 # blog and web preproc
 print('Loading filenum_to_year...')
@@ -45,7 +44,8 @@ def preproc_blog_web(fpath):
     with open(fpath, 'r', encoding='utf-8') as file:
         text = file.read()
 
-    texts = []
+    num_texts = 0
+
     text = text.replace('<p>', ' ')
     text = text.replace('<h>', ' ')
     text = text.replace('&', ' ')
@@ -60,12 +60,11 @@ def preproc_blog_web(fpath):
                 text = e[first_space_index + 1:]
                 if docid in filenum_to_year:
                     year = filenum_to_year[docid]
-                    content = '[YEAR:{year}] '.format(year=year) + e[first_space_index + 1:]
-                    texts.append(content)
+                    num_texts += 1
+                    yield text, year
                 else:
-                    print(f"docid {docid} not found in filenum_to_year when processing file {fpath}")
-    print(f"Extracted {len(texts)} texts from {fpath}")
-    return texts
+                    print(f"docid {docid} not found in filenum_to_year when processing file {fpath} (num_texts: {num_texts})")
+    print(f"Extracted {num_texts} texts from {fpath}")
 
 # preproc orchestration
 def preproc_file(fpath):
@@ -94,13 +93,15 @@ def preproc_file(fpath):
     return texts
 
 def tokenize_source(source, tokenizer):
-    sequence_length = 512
+    sequence_length = 512 - 1 # -1 to make room for the year token
     overlap = 128
     step_size = sequence_length - overlap
     all_sequences = []
-    for text in preproc_file(source):
+    for text, year in preproc_file(source):
+        year_token = tokenizer.encode('[YEAR:{i}]'.format(i=year), add_special_tokens=False)[0]
         tokens = tokenizer.encode(text, add_special_tokens=False)
-        cur_sequences = [tokens[i:i + sequence_length] for i in range(0, len(tokens), step_size)]
+        cur_sequences = [[year_token] + tokens[i:i + sequence_length] for i in range(0, len(tokens), step_size)]
+
         all_sequences.extend(cur_sequences)
     return all_sequences
 

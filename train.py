@@ -1,12 +1,11 @@
-import pdb
 from torch.utils.data import DataLoader, Dataset
-from loader import DataCollatorForSpanMasking, COCATokenizedDataset
-from transformers import BertTokenizerFast, TrainingArguments, Trainer, BertConfig, BertForMaskedLM, DataCollatorForLanguageModeling
+from loader import DataCollatorForTemporalSpanMasking, COCATokenizedDataset
+from transformers import BertTokenizerFast, TrainingArguments, Trainer, BertConfig, BertForMaskedLM
 
 if __name__ == "__main__":
     
     print('Loading dataset...')
-    dataset = COCATokenizedDataset(root_path='./coca_tokenized', debug=True)
+    dataset = COCATokenizedDataset(root_path='./coca_tokenized', debug=False)
 
     print('Loading tokenizer...')
     tokenizer = BertTokenizerFast.from_pretrained('./coca_tokenized/tokenizer')
@@ -14,17 +13,17 @@ if __name__ == "__main__":
     print('Loading training config...')
     training_args = TrainingArguments(
         output_dir='./results',
-        num_train_epochs=1,
-        per_device_train_batch_size=64,
+        num_train_epochs=4,
+        gradient_accumulation_steps=4,
+        per_device_train_batch_size=128,
         warmup_steps=1000,
-        learning_rate=1e-4,
+        learning_rate=4e-4,
         weight_decay=0.01,
         logging_dir='./logs',
         logging_steps=10,
     )
 
     #100M
-    '''
     config = BertConfig(
         vocab_size=len(tokenizer),
         hidden_size=768,
@@ -33,6 +32,7 @@ if __name__ == "__main__":
         intermediate_size=3072,
         max_position_embeddings=512,
     )
+
     '''
 
     #300M
@@ -45,7 +45,6 @@ if __name__ == "__main__":
         max_position_embeddings=512,
     )
 
-    '''
     #1B
     config = BertConfig(
         vocab_size=len(tokenizer),
@@ -60,7 +59,7 @@ if __name__ == "__main__":
     print('Loading model...')
     model = BertForMaskedLM(config)
 
-    data_collator = DataCollatorForSpanMasking(tokenizer)
+    data_collator = DataCollatorForTemporalSpanMasking(tokenizer)
 
     print('Loading trainer...')
     trainer = Trainer(

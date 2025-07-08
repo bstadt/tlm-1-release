@@ -46,9 +46,10 @@ class COCATokenizedDataset(Dataset):
         data = json.loads(line.strip())
         return {'input_ids': torch.tensor(data)}
 
-class DataCollatorForSpanMasking:
-    def __init__(self, tokenizer, num_spans=30):
+class DataCollatorForTemporalSpanMasking:
+    def __init__(self, tokenizer, num_spans=30, p_time_mask=0.9):
         self.tokenizer = tokenizer
+        self.p_time_mask = p_time_mask
         self.num_spans = num_spans
         self.geom_p = 0.2
         self.lower = 1
@@ -77,6 +78,11 @@ class DataCollatorForSpanMasking:
 
             num_spans = self.num_spans
 
+            # Time masking
+            if np.random.random() < self.p_time_mask:
+                input_ids[0] = self.tokenizer.mask_token_id
+
+            # Span masking
             span_lens = np.random.choice(self.lens, num_spans, p=self.len_distrib)
             for span_len in span_lens:
                 start_idx = np.random.randint(0, input_ids.shape[0] - span_len)
