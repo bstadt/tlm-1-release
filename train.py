@@ -15,14 +15,16 @@ if __name__ == "__main__":
         output_dir='./results',
         num_train_epochs=4,
         gradient_accumulation_steps=4,
-        per_device_train_batch_size=128,
-        warmup_steps=1000,
-        learning_rate=4e-4,
+        per_device_train_batch_size=64,
+        warmup_steps=10000,
+        learning_rate=2e-4,
         weight_decay=0.01,
         logging_dir='./logs',
         logging_steps=10,
+        bf16=True,
     )
 
+    '''
     #100M
     config = BertConfig(
         vocab_size=len(tokenizer),
@@ -32,8 +34,6 @@ if __name__ == "__main__":
         intermediate_size=3072,
         max_position_embeddings=512,
     )
-
-    '''
 
     #300M
     config = BertConfig(
@@ -54,12 +54,15 @@ if __name__ == "__main__":
         intermediate_size=5120,
         max_position_embeddings=512,
     )
+
+    model = BertForMaskedLM(config)
     '''
 
     print('Loading model...')
-    model = BertForMaskedLM(config)
+    model = BertForMaskedLM.from_pretrained('bert-large-uncased')
+    model.resize_token_embeddings(len(tokenizer))
 
-    data_collator = DataCollatorForTemporalSpanMasking(tokenizer)
+    data_collator = DataCollatorForTemporalSpanMasking(tokenizer, num_spans=55)
 
     print('Loading trainer...')
     trainer = Trainer(
