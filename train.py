@@ -1,3 +1,6 @@
+import os
+import wandb
+from datetime import datetime
 from torch.utils.data import DataLoader, Dataset
 from loader import DataCollatorForTemporalSpanMasking, COCATokenizedDataset
 from transformers import BertTokenizerFast, TrainingArguments, Trainer, BertConfig, BertForMaskedLM
@@ -6,6 +9,8 @@ from transformers.trainer import Trainer
 from transformers.trainer_callback import TrainerCallback
 import torch
 import torch.nn.functional as F
+
+os.environ["WANDB_PROJECT"] = "tlm"
 
 class TLMMetricsCallback(TrainerCallback):
     def __init__(self):
@@ -54,10 +59,13 @@ class TLMMetricsCallback(TrainerCallback):
         if logs is not None:
             logs['first_token_accuracy'] = self.current_batch_first_token_accuracy
             logs['infill_accuracy'] = self.current_batch_infill_accuracy
+            wandb.log(logs)
 
 class TLMTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        #run_name = 'tlm-{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        #wandb.init(project='tlm', name=run_name, config=args)
         self.tlm_metrics_callback = TLMMetricsCallback()
     
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
@@ -100,6 +108,8 @@ if __name__ == "__main__":
         logging_dir='./logs',
         logging_steps=10,
         bf16=True,
+        report_to='wandb',
+        run_name='tlm-{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S')),
     )
 
     '''
