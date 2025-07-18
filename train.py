@@ -97,11 +97,12 @@ if __name__ == "__main__":
     tokenizer = BertTokenizerFast.from_pretrained('./coca_tokenized/tokenizer')
 
     print('Loading training config...')
+    run_name='tlm-{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
     training_args = TrainingArguments(
-        output_dir='./results',
+        output_dir='./{}'.format(run_name),
         num_train_epochs=2,
-        gradient_accumulation_steps=2,
-        per_device_train_batch_size=128,
+        gradient_accumulation_steps=4,
+        per_device_train_batch_size=64,
         warmup_steps=10000,
         learning_rate=2e-4,
         weight_decay=0.01,
@@ -109,7 +110,7 @@ if __name__ == "__main__":
         logging_steps=10,
         bf16=True,
         report_to='wandb',
-        run_name='tlm-{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S')),
+        run_name=run_name,
     )
 
     '''
@@ -147,7 +148,7 @@ if __name__ == "__main__":
     '''
 
     print('Loading model...')
-    model = BertForMaskedLM.from_pretrained('bert-base-uncased')
+    model = BertForMaskedLM.from_pretrained('bert-large-uncased')
     model.resize_token_embeddings(len(tokenizer))
 
     data_collator = DataCollatorForTemporalSpanMasking(tokenizer, num_spans=55)
