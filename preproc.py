@@ -2,7 +2,7 @@ import os
 import json
 import glob
 from tqdm import tqdm
-from transformers import BertTokenizerFast
+from transformers import BertTokenizerFast, AutoTokenizer
 
 
 # general file preproc
@@ -25,6 +25,7 @@ def preproc_general(fpath):
             if first_space_index != -1:
                 docid = e[:first_space_index]
                 text = e[first_space_index + 1:]
+                num_texts += 1
                 yield text, year
     print(f"Extracted {num_texts} texts from {fpath}")
 
@@ -109,7 +110,8 @@ def tokenize_source(source, tokenizer):
 if __name__ == "__main__":
     print('Creating tokenizer...')
     #create the tokenizer
-    tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
+    #tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/ettin-encoder-400m")
 
     # Add new special tokens
     additional_special_tokens = ['[MASK_NOLOSS]'] + ['[YEAR:{i}]'.format(i=i) for i in range(1900, 2025)]
@@ -117,8 +119,8 @@ if __name__ == "__main__":
     tokenizer.add_special_tokens(special_tokens_dict)
 
     # save the tokenizer
-    os.makedirs('./coca_tokenized/tokenizer/', exist_ok=True)
-    tokenizer.save_pretrained('./coca_tokenized/tokenizer/')
+    os.makedirs('./coca_tokenized_ettin_large/tokenizer/', exist_ok=True)
+    tokenizer.save_pretrained('./coca_tokenized_ettin_large/tokenizer/')
 
     # get all the sources
     raw_sources = glob.glob('./coca/text/text*.txt')
@@ -129,7 +131,7 @@ if __name__ == "__main__":
         sequences = tokenize_source(source, tokenizer)
 
         # write sequences to JSONL file (one sequence per line)
-        output_file = f'./coca_tokenized/{os.path.basename(source).split(".")[0]}.jsonl'
+        output_file = f'./coca_tokenized_ettin_large/{os.path.basename(source).split(".")[0]}.jsonl'
         with open(output_file, 'w') as f:
             for sequence in sequences:
                 json.dump(sequence, f)

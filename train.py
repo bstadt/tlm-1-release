@@ -3,7 +3,7 @@ import wandb
 from datetime import datetime
 from torch.utils.data import DataLoader, Dataset
 from loader import DataCollatorForTemporalSpanMasking, COCATokenizedDataset
-from transformers import BertTokenizerFast, TrainingArguments, Trainer, BertConfig, BertForMaskedLM
+from transformers import BertTokenizerFast, TrainingArguments, Trainer, BertConfig, BertForMaskedLM, AutoTokenizer, ModernBertForMaskedLM, AutoModelForMaskedLM
 from transformers.training_args import TrainingArguments
 from transformers.trainer import Trainer
 from transformers.trainer_callback import TrainerCallback
@@ -64,8 +64,6 @@ class TLMMetricsCallback(TrainerCallback):
 class TLMTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        #run_name = 'tlm-{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-        #wandb.init(project='tlm', name=run_name, config=args)
         self.tlm_metrics_callback = TLMMetricsCallback()
     
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
@@ -91,65 +89,47 @@ class TLMTrainer(Trainer):
 if __name__ == "__main__":
     
     print('Loading dataset...')
-    dataset = COCATokenizedDataset(root_path='./coca_tokenized', debug=False)
+    dataset = COCATokenizedDataset(root_path='./coca_tokenized_ettin_large', debug=False)
 
     print('Loading tokenizer...')
-    tokenizer = BertTokenizerFast.from_pretrained('./coca_tokenized/tokenizer')
+    #tokenizer = BertTokenizerFast.from_pretrained('./coca_tokenized/tokenizer')
+    tokenizer = AutoTokenizer.from_pretrained('./coca_tokenized_ettin_large/tokenizer')
 
     print('Loading training config...')
     run_name='tlm-{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
     training_args = TrainingArguments(
         output_dir='./{}'.format(run_name),
-        num_train_epochs=2,
+        num_train_epochs=4,
         gradient_accumulation_steps=4,
         per_device_train_batch_size=64,
         warmup_steps=10000,
-        learning_rate=2e-4,
+        learning_rate=1e-5,
         weight_decay=0.01,
-        logging_dir='./logs',
+        logging_dir='./logs/{}'.format(run_name),
         logging_steps=10,
         bf16=True,
         report_to='wandb',
         run_name=run_name,
     )
 
-    '''
-    #100M
-    config = BertConfig(
-        vocab_size=len(tokenizer),
-        hidden_size=768,
-        num_hidden_layers=12,
-        num_attention_heads=12,
-        intermediate_size=3072,
-        max_position_embeddings=512,
-    )
-
-    #300M
-    config = BertConfig(
-        vocab_size=len(tokenizer),
-        hidden_size=1024,
-        num_hidden_layers=24,
-        num_attention_heads=16,
-        intermediate_size=4096,
-        max_position_embeddings=512,
-    )
-
-    #1B
-    config = BertConfig(
-        vocab_size=len(tokenizer),
-        hidden_size=1280,
-        num_hidden_layers=36,
-        num_attention_heads=20,
-        intermediate_size=5120,
-        max_position_embeddings=512,
-    )
-
-    model = BertForMaskedLM(config)
-    '''
 
     print('Loading model...')
-    model = BertForMaskedLM.from_pretrained('bert-large-uncased')
+    model = AutoModelForMaskedLM.from_pretrained('jhu-clsp/ettin-encoder-400m', trust_remote_code=True)
     model.resize_token_embeddings(len(tokenizer))
+
+    # Set new special token embeddings to the embedding of the space character
+    # This is a hack to get the model to work with the new special tokens
+    # Otherwise, all of the model infra freaks out and we get mega loss
+    additional_special_tokens = ['[MASK_NOLOSS]'] + ['[YEAR:{i}]'.format(i=i) for i in range(1900, 2025)]
+    space_token_id = tokenizer.convert_tokens_to_ids(' ')
+    if space_token_id == tokenizer.unk_token_id:
+        space_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+
+    embedding = model.get_input_embeddings()
+    new_token_ids = tokenizer.convert_tokens_to_ids(additional_special_tokens)
+    space_embedding = embedding.weight.data[space_token_id].clone()
+    for token_id in new_token_ids:
+        embedding.weight.data[token_id] = space_embedding
 
     data_collator = DataCollatorForTemporalSpanMasking(tokenizer, num_spans=55)
 
@@ -165,4 +145,4 @@ if __name__ == "__main__":
     trainer.train()
 
     print('Saving model...')
-    trainer.save_model('./model')
+    trainer.save_model('./models/{}'.format(run_name))
