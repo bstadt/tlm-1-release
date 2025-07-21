@@ -74,7 +74,7 @@ class TLMTrainer(Trainer):
         if 'labels' in inputs:
             self.tlm_metrics_callback.update_metrics(logits, inputs['labels'])
         
-        loss = outputs.loss
+        loss = outputs.loss / self.args.gradient_accumulation_steps
         
         if return_outputs:
             return loss, outputs
@@ -103,7 +103,7 @@ if __name__ == "__main__":
         gradient_accumulation_steps=4,
         per_device_train_batch_size=64,
         warmup_steps=10000,
-        learning_rate=1e-5,
+        learning_rate=2e-4,
         weight_decay=0.01,
         logging_dir='./logs/{}'.format(run_name),
         logging_steps=10,
