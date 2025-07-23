@@ -1,9 +1,10 @@
-from transformers import AutoTokenizer, AutoModelForMaskedLM, DataCollatorForLanguageModeling
+from transformers import AutoTokenizer, AutoModelForMaskedLM
+from torch.utils.data import DataLoader
 import torch
 from datasets import load_dataset
-from preproc import preproc_general
+from loader import COCATokenizedDataset, DataCollatorForTemporalSpanMasking
 
-model_name = 'jhu-clsp/ettin-encoder-400m'
+model_name = 'jhu-clsp/ettin-encoder-1b'
 model = AutoModelForMaskedLM.from_pretrained(model_name, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -24,29 +25,46 @@ space_embedding = embedding.weight.data[space_token_id].clone()
 for token_id in new_token_ids:
     embedding.weight.data[token_id] = space_embedding
 
+dataset = COCATokenizedDataset(root_path='./coca_tokenized_ettin_large', debug=False)
+data_collator = DataCollatorForTemporalSpanMasking(tokenizer, num_spans=55)
 
-for text, year in preproc_general('coca/text/text_acad_1996.txt'):
-    encoding = tokenizer(text, return_tensors='pt')
-    input_ids = encoding['input_ids']
+dataloader = DataLoader(dataset, batch_size=64, collate_fn=data_collator)
 
-    # Manually mask 15% of the input ids
-    masked_input_ids = input_ids.clone()
-    probability_matrix = torch.full(masked_input_ids.shape, 0.15)
+for batch in dataloader:
 
-    masked_indices = torch.bernoulli(probability_matrix).bool()
-    masked_input_ids[masked_indices] = tokenizer.mask_token_id
-    print('masked_input_ids:', masked_input_ids[0, :20])
+    # Replace input_ids and labels with unk_token_id if not in tokenizer
+    input_ids = batch["input_ids"]
+    labels = batch["labels"]
+    vocab_size = len(tokenizer)
+    unk_token_id = tokenizer.unk_token_id
 
-    labels = input_ids.clone()
-    outputs = model(masked_input_ids)
-    logits = outputs.logits
-    predictions = torch.argmax(logits, dim=-1)
-    print('predictions:', predictions[0, :20])
-    print('labels:', labels[0, :20])
-    #mask = labels != -100
-    mask = masked_indices
-    correct = (predictions[mask] == labels[mask]).sum().item()
-    total = mask.sum().item()
-    print(f"Correct: {correct}, Total: {total}, Accuracy: {correct/total}")
-    exit()
+    # Create a mask for tokens not in the vocab
+    invalid_input_mask = input_ids >= vocab_size
+    invalid_label_mask = (labels >= vocab_size) & (labels != -100)  # don't touch ignore index
 
+    if unk_token_id is not None:
+        input_ids[invalid_input_mask] = unk_token_id
+        labels[invalid_label_mask] = unk_token_id
+
+    batch["input_ids"] = input_ids
+    batch["labels"] = labels
+
+    # Move tensors to the same device as the model
+    device = next(model.parameters()).device
+    batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+    with torch.no_grad():
+        outputs = model(**batch)
+        logits = outputs.logits
+        labels = batch["labels"]
+
+        # Only consider positions where label != -100 (i.e., masked positions)
+        mask = labels != -100
+        if mask.sum() == 0:
+            print("No masked positions in this batch.")
+        else:
+            preds = logits.argmax(dim=-1)
+            correct = (preds == labels) & mask
+            accuracy = correct.sum().item() / mask.sum().item()
+            print(f"Infill accuracy: {accuracy:.4f} ({correct.sum().item()}/{mask.sum().item()})")
+    break

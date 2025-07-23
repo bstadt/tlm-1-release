@@ -62,9 +62,10 @@ class TLMMetricsCallback(TrainerCallback):
             wandb.log(logs)
 
 class TLMTrainer(Trainer):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, temporal_loss_weight=1./512, **kwargs):
         super().__init__(*args, **kwargs)
         self.tlm_metrics_callback = TLMMetricsCallback()
+        self.temporal_loss_weight = temporal_loss_weight
     
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         outputs = model(**inputs)
@@ -73,8 +74,34 @@ class TLMTrainer(Trainer):
         # Update first token accuracy
         if 'labels' in inputs:
             self.tlm_metrics_callback.update_metrics(logits, inputs['labels'])
-        
-        loss = outputs.loss / self.args.gradient_accumulation_steps
+
+        # Custom loss: multiply first token loss by a hyperparameter
+        first_token_loss_weight = self.temporal_loss_weight
+        labels = inputs['labels']
+        # Flatten logits and labels for cross-entropy
+        vocab_size = logits.size(-1)
+        logits_flat = logits.view(-1, vocab_size)
+        labels_flat = labels.view(-1)
+        # Compute loss for all tokens
+        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
+        all_losses = loss_fct(logits_flat, labels_flat).view_as(labels)
+        # First token loss (position 0)
+        first_token_loss = all_losses[:, 0]
+        # Other tokens loss (positions 1+)
+        other_token_loss = all_losses[:, 1:]
+        # Mask for valid tokens
+        first_token_mask = (labels[:, 0] != -100)
+        other_token_mask = (labels[:, 1:] != -100)
+        # Weighted sum
+        first_token_loss_sum = (first_token_loss * first_token_mask).sum()
+        first_token_count = first_token_mask.sum()
+        other_token_loss_sum = (other_token_loss * other_token_mask).sum()
+        other_token_count = other_token_mask.sum()
+        # Avoid division by zero
+        first_token_loss_mean = first_token_loss_sum / (first_token_count + 1e-8)
+        other_token_loss_mean = other_token_loss_sum / (other_token_count + 1e-8)
+        loss = first_token_loss_weight * first_token_loss_mean + other_token_loss_mean
+        loss = loss / self.args.gradient_accumulation_steps
         
         if return_outputs:
             return loss, outputs
@@ -100,10 +127,10 @@ if __name__ == "__main__":
     training_args = TrainingArguments(
         output_dir='./{}'.format(run_name),
         num_train_epochs=4,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=8,
         per_device_train_batch_size=64,
-        warmup_steps=10000,
-        learning_rate=2e-4,
+        warmup_steps=5000,
+        learning_rate=1e-4,
         weight_decay=0.01,
         logging_dir='./logs/{}'.format(run_name),
         logging_steps=10,
@@ -139,6 +166,7 @@ if __name__ == "__main__":
         args=training_args,
         train_dataset=dataset,
         data_collator=data_collator,
+        temporal_loss_weight=0.5,
     )
 
     print('Training!')
