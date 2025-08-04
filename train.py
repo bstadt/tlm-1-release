@@ -126,7 +126,7 @@ if __name__ == "__main__":
     run_name='tlm-{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
     training_args = TrainingArguments(
         output_dir='./{}'.format(run_name),
-        num_train_epochs=4,
+        num_train_epochs=2,
         gradient_accumulation_steps=8,
         per_device_train_batch_size=64,
         warmup_steps=5000,
@@ -147,7 +147,7 @@ if __name__ == "__main__":
     # Set new special token embeddings to the embedding of the space character
     # This is a hack to get the model to work with the new special tokens
     # Otherwise, all of the model infra freaks out and we get mega loss
-    additional_special_tokens = ['[MASK_NOLOSS]'] + ['[YEAR:{i}]'.format(i=i) for i in range(1900, 2025)]
+    additional_special_tokens = ['[MASK_NOLOSS]'] + ['[YEAR:{i}]'.format(i=i) for i in range(1990, 2025)]
     space_token_id = tokenizer.convert_tokens_to_ids(' ')
     if space_token_id == tokenizer.unk_token_id:
         space_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)

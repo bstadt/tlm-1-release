@@ -114,7 +114,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/ettin-encoder-400m")
 
     # Add new special tokens
-    additional_special_tokens = ['[MASK_NOLOSS]'] + ['[YEAR:{i}]'.format(i=i) for i in range(1900, 2025)]
+    additional_special_tokens = ['[MASK_NOLOSS]'] + ['[YEAR:{i}]'.format(i=i) for i in range(1990, 2025)]
     special_tokens_dict = {'additional_special_tokens': additional_special_tokens}
     tokenizer.add_special_tokens(special_tokens_dict)
 
