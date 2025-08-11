@@ -8,13 +8,15 @@ import linecache
 import json
 from typing import Any, Dict, List
 
-class COCATokenizedDataset(Dataset):
+class JSONLTokenizedDataset(Dataset):
     def __init__(self, root_path, debug=False):
         self.root_path = root_path
         if debug:
             self.source_files = glob.glob(os.path.join(root_path, '*acad*.jsonl'))
         else:
             self.source_files = glob.glob(os.path.join(root_path, '*.jsonl'))
+            self.source_files = [e for e in self.source_files if 'web' not in e]
+            self.source_files = [e for e in self.source_files if 'blog' not in e]
         
         # Compute total length and file lengths
         self.file_lengths = []
@@ -29,6 +31,11 @@ class COCATokenizedDataset(Dataset):
         
     def __len__(self):
         return self.total_length
+
+    def get_source_file_from_item_idx(self, idx):
+        linenum = idx + 1 #since linecache is 1-indexed for some reason
+        file_idx = np.searchsorted(self.cumulative_lengths, linenum)
+        return self.source_files[file_idx]
 
     def __getitem__(self, idx):
 

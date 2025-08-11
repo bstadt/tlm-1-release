@@ -1,8 +1,9 @@
 import os
 import wandb
+import click
 from datetime import datetime
 from torch.utils.data import DataLoader, Dataset
-from loader import DataCollatorForTemporalSpanMasking, COCATokenizedDataset
+from loader import DataCollatorForTemporalSpanMasking, JSONLTokenizedDataset
 from transformers import BertTokenizerFast, TrainingArguments, Trainer, BertConfig, BertForMaskedLM, AutoTokenizer, ModernBertForMaskedLM, AutoModelForMaskedLM
 from transformers.training_args import TrainingArguments
 from transformers.trainer import Trainer
@@ -62,10 +63,11 @@ class TLMMetricsCallback(TrainerCallback):
             wandb.log(logs)
 
 class TLMTrainer(Trainer):
-    def __init__(self, *args, temporal_loss_weight=1./512, **kwargs):
+    def __init__(self, *args, temporal_loss_weight=1./512, grad_accum_correction=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.tlm_metrics_callback = TLMMetricsCallback()
         self.temporal_loss_weight = temporal_loss_weight
+        self.grad_accum_correction = grad_accum_correction
     
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         outputs = model(**inputs)
@@ -101,7 +103,8 @@ class TLMTrainer(Trainer):
         first_token_loss_mean = first_token_loss_sum / (first_token_count + 1e-8)
         other_token_loss_mean = other_token_loss_sum / (other_token_count + 1e-8)
         loss = first_token_loss_weight * first_token_loss_mean + other_token_loss_mean
-        loss = loss / self.args.gradient_accumulation_steps
+        if self.grad_accum_correction:
+            loss = loss / self.args.gradient_accumulation_steps
         
         if return_outputs:
             return loss, outputs
@@ -113,17 +116,34 @@ class TLMTrainer(Trainer):
         logs['infill_accuracy'] = self.tlm_metrics_callback.current_batch_infill_accuracy
         super().log(logs, *args, **kwargs)
 
-if __name__ == "__main__":
+@click.command()
+@click.option('--dataset', type=click.Choice(['coca', 'now']), required=True, help='Dataset to use for training')
+def main(dataset):
     
-    print('Loading dataset...')
-    dataset = COCATokenizedDataset(root_path='./coca_tokenized_ettin_large', debug=False)
 
     print('Loading tokenizer...')
-    #tokenizer = BertTokenizerFast.from_pretrained('./coca_tokenized/tokenizer')
-    tokenizer = AutoTokenizer.from_pretrained('./coca_tokenized_ettin_large/tokenizer')
+    if dataset == 'coca':
+        tokenizer_path = './coca_tokenized_ettin_large/tokenizer'
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    else:  # now
+
+        tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/ettin-encoder-400m")
+
+        # Add new special tokens
+        additional_special_tokens = ['[MASK_NOLOSS]'] 
+        for year in range(10, 26):
+            for month in range(1, 13):
+                additional_special_tokens.append('[TIME:{i}-{j}]'.format(i=year, j=month))
+        special_tokens_dict = {'additional_special_tokens': additional_special_tokens}
+        tokenizer.add_special_tokens(special_tokens_dict)
+
+        # save the tokenizer
+        os.makedirs('./now_tokenized_ettin_large/tokenizer/', exist_ok=True)
+        tokenizer.save_pretrained('./coca_tokenized_ettin_large/tokenizer/')
+
 
     print('Loading training config...')
-    run_name='tlm-{}'.format(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+    run_name='{}-tlm-{}'.format(dataset, datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
     training_args = TrainingArguments(
         output_dir='./{}'.format(run_name),
         num_train_epochs=2,
@@ -139,24 +159,44 @@ if __name__ == "__main__":
         run_name=run_name,
     )
 
-
     print('Loading model...')
-    model = AutoModelForMaskedLM.from_pretrained('jhu-clsp/ettin-encoder-400m', trust_remote_code=True)
+    if dataset == 'now':
+        print('using random init')
+        import yaml
+        with open('./encoder_large_config.yaml', 'r') as f:
+            config = yaml.safe_load(f)
+        model_config = config['model']['model_config']
+        model_config = BertConfig(**model_config)
+        model = BertForMaskedLM._from_config(model_config)
+    else:
+        model = AutoModelForMaskedLM.from_pretrained('jhu-clsp/ettin-encoder-400m', trust_remote_code=True)
+
+
+    if dataset == 'coca':
+        # For COAA we are fine tuning
+        # Set new special token embeddings to the embedding of the space character
+        # This is a hack to get the model to work with the new special tokens
+        # Otherwise, all of the model infra freaks out and we get mega loss
+        additional_special_tokens = ['[MASK_NOLOSS]'] + ['[YEAR:{i}]'.format(i=i) for i in range(1990, 2025)]
+        space_token_id = tokenizer.convert_tokens_to_ids(' ')
+        if space_token_id == tokenizer.unk_token_id:
+            space_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+
+        embedding = model.get_input_embeddings()
+        new_token_ids = tokenizer.convert_tokens_to_ids(additional_special_tokens)
+        space_embedding = embedding.weight.data[space_token_id].clone()
+        for token_id in new_token_ids:
+            embedding.weight.data[token_id] = space_embedding
+
     model.resize_token_embeddings(len(tokenizer))
 
-    # Set new special token embeddings to the embedding of the space character
-    # This is a hack to get the model to work with the new special tokens
-    # Otherwise, all of the model infra freaks out and we get mega loss
-    additional_special_tokens = ['[MASK_NOLOSS]'] + ['[YEAR:{i}]'.format(i=i) for i in range(1990, 2025)]
-    space_token_id = tokenizer.convert_tokens_to_ids(' ')
-    if space_token_id == tokenizer.unk_token_id:
-        space_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
-
-    embedding = model.get_input_embeddings()
-    new_token_ids = tokenizer.convert_tokens_to_ids(additional_special_tokens)
-    space_embedding = embedding.weight.data[space_token_id].clone()
-    for token_id in new_token_ids:
-        embedding.weight.data[token_id] = space_embedding
+    print(f'Loading {dataset} dataset...')
+    if dataset == 'coca':
+        dataset_path = './coca_tokenized_ettin_large'
+    else:  # now
+        dataset_path = './now_tokenized_ettin_large'
+    
+    dataset = JSONLTokenizedDataset(root_path=dataset_path, debug=False)
 
     data_collator = DataCollatorForTemporalSpanMasking(tokenizer, num_spans=55)
 
@@ -167,6 +207,7 @@ if __name__ == "__main__":
         train_dataset=dataset,
         data_collator=data_collator,
         temporal_loss_weight=0.5,
+        grad_accum_correction=dataset=='coca'
     )
 
     print('Training!')
@@ -174,3 +215,6 @@ if __name__ == "__main__":
 
     print('Saving model...')
     trainer.save_model('./models/{}'.format(run_name))
+
+if __name__ == "__main__":
+    main()
