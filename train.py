@@ -124,32 +124,19 @@ def main(dataset):
     print('Loading tokenizer...')
     if dataset == 'coca':
         tokenizer_path = './coca_tokenized_ettin_large/tokenizer'
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     else:  # now
-
-        tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/ettin-encoder-400m")
-
-        # Add new special tokens
-        additional_special_tokens = ['[MASK_NOLOSS]'] 
-        for year in range(10, 26):
-            for month in range(1, 13):
-                additional_special_tokens.append('[TIME:{i}-{j}]'.format(i=year, j=month))
-        special_tokens_dict = {'additional_special_tokens': additional_special_tokens}
-        tokenizer.add_special_tokens(special_tokens_dict)
-
-        # save the tokenizer
-        os.makedirs('./now_tokenized_ettin_large/tokenizer/', exist_ok=True)
-        tokenizer.save_pretrained('./coca_tokenized_ettin_large/tokenizer/')
+        tokenizer_path = './now_tokenized_ettin_large/tokenizer'
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
 
 
     print('Loading training config...')
     run_name='{}-tlm-{}'.format(dataset, datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
     training_args = TrainingArguments(
         output_dir='./{}'.format(run_name),
-        num_train_epochs=2,
-        gradient_accumulation_steps=8,
+        num_train_epochs=4,
+        gradient_accumulation_steps=24,
         per_device_train_batch_size=64,
-        warmup_steps=5000,
+        warmup_steps=2500,
         learning_rate=1e-4,
         weight_decay=0.01,
         logging_dir='./logs/{}'.format(run_name),

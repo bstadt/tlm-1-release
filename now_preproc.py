@@ -12,8 +12,8 @@ def preproc_general(fpath):
         text = file.read()
 
     num_texts = 0
-    year = fpath.split('/')[-1].split('-')[0]
-    month = fpath.split('/')[-1].split('-')[1]
+    year = int(fpath.split('/')[-1].split('-')[0])
+    month = int(fpath.split('/')[-1].split('-')[1])
     print('parsed year and month', year, month, 'from', fpath)
     text = text.replace('<p>', ' ')
     text = text.replace('<h>', ' ')
@@ -42,7 +42,8 @@ def tokenize_source(source, tokenizer):
     step_size = sequence_length - overlap
     all_sequences = []
     for text, year, month in preproc_file(source):
-        time_token = tokenizer.encode('[TIME:{i}-{j}]'.format(i=year, j=month), add_special_tokens=False)[0]
+        timestr = '[TIME:{i}-{j}]'.format(i=year, j=month)
+        time_token = tokenizer.encode(timestr, add_special_tokens=False)[0]
         tokens = tokenizer.encode(text, add_special_tokens=False)
         cur_sequences = [[time_token] + tokens[i:i + sequence_length] for i in range(0, len(tokens), step_size)]
 
@@ -66,7 +67,7 @@ if __name__ == "__main__":
 
     # save the tokenizer
     os.makedirs('./now_tokenized_ettin_large/tokenizer/', exist_ok=True)
-    tokenizer.save_pretrained('./coca_tokenized_ettin_large/tokenizer/')
+    tokenizer.save_pretrained('./now_tokenized_ettin_large/tokenizer/')
 
     # get all the english sources
     raw_sources = glob.glob('./now/text/*us*.txt')
