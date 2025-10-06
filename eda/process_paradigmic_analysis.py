@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import numpy as np
 
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 loadstr = '/home/bstadt/root/tlm/models/tlm-2025-08-05_16-42-11/checkpoint-10500/'
@@ -119,7 +120,6 @@ def strip_year(text):
     else:
         return None, text
 
-import numpy as np
 from tqdm import tqdm
 def get_posterior(phrase, model, tokenizer, exclude_text=None):
     nucleus = [fill[0] for fill in get_top_fills(phrase, model, tokenizer, top_k=10)]
@@ -179,7 +179,6 @@ def plot_graph(matrix, wordlist):
     # Post-process to nforce minimum distance between nodes
     def enforce_min_distance(pos, min_dist=0.15):
         """Adjust positions to ensure minimum distance between any two nodes"""
-        import numpy as np
         nodes = list(pos.keys())
         positions = np.array([pos[node] for node in nodes])
         
@@ -210,22 +209,7 @@ def plot_graph(matrix, wordlist):
     
     pos = enforce_min_distance(pos, min_dist=1.5)
 
-    # Create the plot
-    plt.figure(figsize=(15, 12))
-
-    # Draw edges
-    nx.draw_networkx_edges(G, pos, alpha=0.3, width=0.5)
-
-    # Draw nodes
-    nx.draw_networkx_nodes(G, pos, node_size=50, node_color='lightblue', alpha=0.7)
-
-    # Draw labels
-    nx.draw_networkx_labels(G, pos, font_size=8, font_weight='bold')
-
-    plt.title('Force-Directed Network Visualization of Word-Cell Matrix')
-    plt.axis('off')
-    plt.tight_layout()
-    plt.show()
+    # Static plot generation removed - only return graph and positions
     return G, pos
 
 def write_interactive_plot(G, pos, word):
@@ -234,6 +218,7 @@ def write_interactive_plot(G, pos, word):
     import networkx as nx
     import plotly.graph_objects as go
     import plotly.io as pio
+    from pathlib import Path
 
     # Define the color palette
     good_colors = ['#EA5526', '#4462BD', '#51915B', '#8064A2', '#E5B700']
@@ -359,7 +344,7 @@ def write_interactive_plot(G, pos, word):
             y0=y - text_height/2,
             x1=x + text_width/2,
             y1=y + text_height/2,
-            fillcolor="#FDF6E8",
+            fillcolor="rgba(0,0,0,0)",
             line=dict(width=0),
             layer="below"
         ))
@@ -412,8 +397,8 @@ def write_interactive_plot(G, pos, word):
                         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                         hovermode='closest',
                         margin=dict(b=50, l=0, r=0, t=0),  # Increased bottom margin for slider
-                        plot_bgcolor='#FDF6E8',
-                        paper_bgcolor='#FDF6E8',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
                         font=dict(family='Geist Mono'),
                         shapes=text_backgrounds,
                         width=1000,
@@ -629,23 +614,28 @@ def write_interactive_plot(G, pos, word):
     # append injected JS before closing </body>
     html_str = html_str.replace("</body>", injected_js + "</body>")
 
-    out_path = "{}_network_plot.html".format(word)
+    # Save to word-specific results directory
+    results_dir = Path('/home/bstadt/root/tlm/eda/paradigmic_analysis_results') / word
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    out_path = results_dir / f"{word}_network_plot.html"
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html_str)
 
     print(f"Wrote interactive ego-network HTML to: {out_path}")
 
 
-def paradigmic_change(target_word, uses_path, model, tokenizer, subset_size=300):
+def paradigmic_change(target_word, uses_path, model, tokenizer, subset_size=1000):
 
     #load data
     uses_data = load_uses(uses_path, target_word)
 
     #random subset
     import random
+    import re
     random.seed(42) 
     selected_indices = random.sample(range(len(uses_data)), min(subset_size, len(uses_data)))
-    masked_texts = [uses_data[i].replace(target_word, '[MASK]', 1) for i in selected_indices]
+    masked_texts = [re.sub(r'\b' + re.escape(target_word) + r'\b', '[MASK]', uses_data[i], count=1) for i in selected_indices]
 
     #move model here to prevent weird cuda memory errors
     model = model.to('cuda')
@@ -672,8 +662,7 @@ def paradigmic_change(target_word, uses_path, model, tokenizer, subset_size=300)
     #top words by bucket
     top_words_by_bucket = {}
     for year_bucket, posterior in aggregated_posteriors.items():
-        # Sort by posterior probability and get top 20
-        filtered = {k: v for k, v in posterior.items() if 'cell' not in k.lower()}
+        filtered = {k: v for k, v in posterior.items() if target_word not in k.lower()}
         filtered = {k: v for k, v in filtered.items() if sum(c.isalpha() for c in k) >= 2}
 
         sorted_words = sorted(filtered.items(), key=lambda x: x[1], reverse=True)[:15]
@@ -711,14 +700,128 @@ def paradigmic_change(target_word, uses_path, model, tokenizer, subset_size=300)
     #write interactive plot
     write_interactive_plot(G, pos, target_word)
 
-    return G, pos, matrix
+    return G, pos, matrix, len(uses_data)
 
 
-cell_G, cell_pos, cell_matrix = paradigmic_change('cell', 'mined_usages/cell_uses.txt', model, tokenizer, subset_size=300)
+import os
+import json
+import pickle
+from pathlib import Path
 
-import networkx as nx
+def process_all_paradigmic_analyses():
+    """
+    Process all usage files and compute paradigmic analysis for each word.
+    Save results to organized directory structure.
+    """
+    # Create results directory
+    results_dir = Path('/home/bstadt/root/tlm/eda/paradigmic_analysis_results')
+    results_dir.mkdir(exist_ok=True)
+    
+    # Get all usage files
+    mined_usages_dir = Path('/home/bstadt/root/tlm/eda/mined_usages')
+    usage_files = list(mined_usages_dir.glob('*_uses.txt'))
+    
+    print(f"Found {len(usage_files)} usage files to process")
+    
+    all_results = {}
+    
+    for usage_file in tqdm(usage_files, desc="Processing words"):
+        # Extract word name from filename
+        word = usage_file.stem.replace('_uses', '')
 
-# Calculate modularity of the graph
-cell_modularity = nx.community.modularity(cell_G, nx.community.greedy_modularity_communities(cell_G))
-print(f"Modularity of the cell graph: {cell_modularity:.4f}")
+        #NOTE skip I because its breaking things...
+        if word == 'I':
+            continue
+        
+        # Create word-specific directory
+        word_dir = results_dir / word
+        word_dir.mkdir(exist_ok=True)
+        
+        # Check if results already exist
+        json_path = word_dir / f'{word}_results.json'
+        html_path = word_dir / f'{word}_network_plot.html'
+        
+        if json_path.exists() and html_path.exists():
+            print(f"\nSkipping word: {word} (results already exist)")
+            # Load existing results for summary
+            try:
+                with open(json_path, 'r') as f:
+                    existing_results = json.load(f)
+                all_results[word] = existing_results
+            except Exception as e:
+                print(f"  - Warning: Could not load existing results: {str(e)}")
+            continue
+        
+        print(f"\nProcessing word: {word}")
+        
+        try:
+            # Run paradigmic analysis
+            G, pos, matrix, total_uses = paradigmic_change(word, str(usage_file), model, tokenizer, subset_size=300)
+            
+            # Calculate modularity
+            communities = nx.community.greedy_modularity_communities(G)
+            modularity = nx.community.modularity(G, communities)
+            
+            # Prepare results
+            word_results = {
+                'word': word,
+                'modularity': modularity,
+                'num_nodes': len(G.nodes()),
+                'num_edges': len(G.edges()),
+                'num_communities': len(communities),
+                'total_uses': total_uses,
+                'usage_file': str(usage_file)
+            }
+            
+            # Save results to JSON
+            json_path = word_dir / f'{word}_results.json'
+            with open(json_path, 'w') as f:
+                json.dump(word_results, f, indent=2)
+            
+            # Save graph data to pickle
+            graph_data = {
+                'G': G,
+                'pos': pos,
+                'matrix': matrix,
+                'communities': communities
+            }
+            pickle_path = word_dir / f'{word}_graph_data.pkl'
+            with open(pickle_path, 'wb') as f:
+                pickle.dump(graph_data, f)
+            
+            # Store in overall results
+            all_results[word] = word_results
+            
+            print(f"  - Modularity: {modularity:.4f}")
+            print(f"  - Nodes: {len(G.nodes())}, Edges: {len(G.edges())}")
+            print(f"  - Saved to: {word_dir}")
+            
+        except Exception as e:
+            print(f"  - Error processing {word}: {str(e)}")
+            # Store error information
+            error_results = {
+                'word': word,
+                'error': str(e),
+                'usage_file': str(usage_file)
+            }
+            all_results[word] = error_results
+            
+            # Save error to JSON
+            json_path = word_dir / f'{word}_error.json'
+            with open(json_path, 'w') as f:
+                json.dump(error_results, f, indent=2)
+    
+    # Save overall summary
+    summary_path = results_dir / 'analysis_summary.json'
+    with open(summary_path, 'w') as f:
+        json.dump(all_results, f, indent=2)
+    
+    print(f"\nProcessing complete! Results saved to: {results_dir}")
+    print(f"Summary saved to: {summary_path}")
+    
+    return all_results
+
+# Run the complete analysis
+if __name__ == "__main__":
+    all_results = process_all_paradigmic_analyses()
 
