@@ -195,7 +195,8 @@ def mine_all_words():
     semantic_words = load_semantic_change_words()
     
     # Combine all word lists
-    all_words = swadesh_words + custom_words + semantic_words + value_words + number_words
+    #all_words = swadesh_words + custom_words + semantic_words + value_words + number_words
+    all_words = ['crunchy']
     
     # Remove duplicates while preserving order
     seen = set()
