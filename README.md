@@ -18,27 +18,62 @@ The model introduces 30 special time tokens (`[YEAR:1990]` through `[YEAR:2019]`
 
 ```python
 from transformers import AutoModelForMaskedLM, AutoTokenizer
+import torch
+import torch.nn.functional as F
 
 model = AutoModelForMaskedLM.from_pretrained("bstadt/tlm-1")
 tokenizer = AutoTokenizer.from_pretrained("bstadt/tlm-1")
-
-# Condition on a specific year
-text = "[YEAR:2015] The president [MASK] announced new policies today."
-inputs = tokenizer(text, return_tensors="pt")
-outputs = model(**inputs)
+model.eval()
 ```
 
 ### Bayesian Query Formulation
 
-Raw fill probabilities from the model can be biased by training data frequencies. To extract genuine temporal signal, use Bayes factors:
+Raw fill probabilities from the model are biased by training data frequencies. For example, "Obama" dominates naive predictions for "President [MASK]" across *all* years because he appears most frequently in COCA. To extract genuine temporal signal, use Bayes factors.
 
+The key insight: compute `P(year | filled_phrase) / P(year | template_phrase)` to cancel out corpus biases.
+
+```python
+def lyear(phrase, model, tokenizer):
+    """Get P(year | phrase) for all years 1990-2019."""
+    years = list(range(1990, 2020))
+    year_tokens = [f'[YEAR:{y}]' for y in years]
+    year_token_ids = [tokenizer.encode(t)[1] for t in year_tokens]
+
+    # Mask the year position
+    input_ids = tokenizer.encode('[MASK] ' + phrase, add_special_tokens=False, return_tensors='pt')
+
+    with torch.no_grad():
+        logits = model(input_ids=input_ids).logits[0][0]
+        year_probs = F.softmax(logits[year_token_ids], dim=0)
+
+    return years, year_probs
+
+def bayes_factor(filled_phrase, template_phrase, model, tokenizer):
+    """Compute Bayes factors: P(year | fill) / P(year | template)."""
+    years, fill_probs = lyear(filled_phrase, model, tokenizer)
+    _, template_probs = lyear(template_phrase, model, tokenizer)
+    return years, fill_probs / template_probs
+
+# Example: Which president is most associated with each year?
+template = "President [MASK] made a speech today"
+candidates = ["Trump", "Obama", "Bush", "Clinton"]
+
+bayes_factors = {}
+for name in candidates:
+    filled = f"President {name} made a speech today"
+    years, bf = bayes_factor(filled, template, model, tokenizer)
+    bayes_factors[name] = bf
+
+# Normalize to get posteriors
+import numpy as np
+all_bf = np.stack([bayes_factors[n].numpy() for n in candidates])
+posteriors = all_bf / all_bf.sum(axis=0)
+
+# Result: posteriors now correctly peak during each president's actual term
+# Clinton peaks 1992-2000, Bush peaks 2000-2008, Obama peaks 2008-2016, Trump peaks 2016-2019
 ```
-P(fill | year) / P(template | year)
-```
 
-This approach replaces naive likelihood estimates with normalized probabilities that surface true temporal patterns rather than corpus artifacts.
-
-**See `eda/bayes.ipynb` in the [code repository](https://github.com/bstadt/tlm-1-release) for a complete example** demonstrating how to use Bayesian query formulation to analyze fills. The notebook shows how to correctly identify which U.S. president is most associated with each year—a task where naive probabilities fail but Bayesian posteriors succeed.
+**See `eda/bayes.ipynb` in the [code repository](https://github.com/bstadt/tlm-1-release) for the complete example** with visualizations showing how naive probabilities fail while Bayesian posteriors correctly identify presidential terms.
 
 ## Training Details
 
