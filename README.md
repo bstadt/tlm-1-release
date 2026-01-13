@@ -69,6 +69,7 @@ This approach replaces naive likelihood estimates with normalized probabilities 
 
 ## Resources
 
+- **Model weights**: [huggingface.co/bstadt/tlm-1](https://huggingface.co/bstadt/tlm-1)
 - **Code & figure generation**: [github.com/bstadt/tlm-1-release](https://github.com/bstadt/tlm-1-release)
 - **Technical report**: [calcifercomputing.com/reports/tlm](https://www.calcifercomputing.com/reports/tlm)
 
