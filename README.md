@@ -28,13 +28,14 @@ model.eval()
 
 ### Bayesian Query Formulation
 
-Raw fill probabilities from the model are biased by training data frequencies. For example, "Obama" dominates naive predictions for "President [MASK]" across *all* years because he appears most frequently in COCA. To extract genuine temporal signal, use Bayes factors.
+Raw fill probabilities from the model are biased by training data frequencies. For example, "Obama" dominates naive predictions for "President [MASK]" across *all* years because he appears most frequently in COCA. Our Bayesian Query Framework corrects for this anachronism:
 
-The key insight: compute `P(year | filled_phrase) / P(year | template_phrase)` to cancel out corpus biases.
+$$P(Fill| Context, Time) = \frac{P(Time | Context; Fill)}{P(Time | Context)}P(Fill | Context)$$
+
+(See our [technical report](https://www.calcifercomputing.com/reports/tlm) for the full derivation)
 
 ```python
 def lyear(phrase, model, tokenizer):
-    """Get P(year | phrase) for all years 1990-2019."""
     years = list(range(1990, 2020))
     year_tokens = [f'[YEAR:{y}]' for y in years]
     year_token_ids = [tokenizer.encode(t)[1] for t in year_tokens]
@@ -49,13 +50,14 @@ def lyear(phrase, model, tokenizer):
     return years, year_probs
 
 def bayes_factor(filled_phrase, template_phrase, model, tokenizer):
-    """Compute Bayes factors: P(year | fill) / P(year | template)."""
     years, fill_probs = lyear(filled_phrase, model, tokenizer)
     _, template_probs = lyear(template_phrase, model, tokenizer)
     return years, fill_probs / template_probs
 
-# Example: Which president is most associated with each year?
+# Example: What is the most likely fill for each year?
 template = "President [MASK] made a speech today"
+
+# Candidate fills can be manually specified or surfaced from nontemporal model likelihood
 candidates = ["Trump", "Obama", "Bush", "Clinton"]
 
 bayes_factors = {}
@@ -64,7 +66,7 @@ for name in candidates:
     years, bf = bayes_factor(filled, template, model, tokenizer)
     bayes_factors[name] = bf
 
-# Normalize to get posteriors
+# Normalize to get posteriors (Assumes uniform probability over fills)
 import numpy as np
 all_bf = np.stack([bayes_factors[n].numpy() for n in candidates])
 posteriors = all_bf / all_bf.sum(axis=0)
@@ -89,11 +91,6 @@ posteriors = all_bf / all_bf.sum(axis=0)
 | Content masking | Span-based (max length 4) |
 | Time token masking | 90% |
 
-### Performance
-
-- Content infill accuracy: ~54%
-- Time token accuracy: ~70%
-
 ## Applications
 
 1. **Long-arc analysis**: Track monotonic language trends (e.g., sentiment toward the future becoming increasingly negative from 1990-2019)
@@ -112,8 +109,8 @@ posteriors = all_bf / all_bf.sum(axis=0)
 
 ```bibtex
 @misc{tlm1-2025,
-  author = {Duderstadt, Brandon},
-  title = {TLM-1: A Temporal Language Model},
+  author = {Duderstadt, Brandon and Helm, Hayden},
+  title = {A Model of the Language Process},
   year = {2025},
   publisher = {Calcifer Computing},
   url = {https://www.calcifercomputing.com/reports/tlm}
